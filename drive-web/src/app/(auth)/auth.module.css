@@ -1,0 +1,138 @@
+.authScreen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(79, 209, 197, 0.08), transparent 40%),
+    radial-gradient(circle at 80% 80%, rgba(79, 209, 197, 0.05), transparent 40%),
+    var(--bg);
+}
+
+.authCard {
+  width: 100%;
+  max-width: 380px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.brandMark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dim));
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: #05201d;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.brandName {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+
+.subtitle {
+  color: var(--text-dim);
+  font-size: 14px;
+  margin: 0 0 28px;
+}
+
+.field {
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 11px 13px;
+  color: var(--text);
+  font-size: 14px;
+  transition: border-color 0.15s ease;
+}
+
+.input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.submit {
+  width: 100%;
+  background: var(--accent);
+  color: #05201d;
+  border: none;
+  border-radius: var(--radius);
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+
+.submit:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.submit:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.error {
+  background: var(--danger-soft);
+  color: #ff8085;
+  border: 1px solid rgba(229, 72, 77, 0.3);
+  border-radius: var(--radius);
+  padding: 10px 13px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.switchLine {
+  margin-top: 22px;
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.switchLine a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.switchLine a:hover {
+  text-decoration: underline;
+}
