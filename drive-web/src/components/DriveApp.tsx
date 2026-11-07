@@ -47,6 +47,8 @@ import { MediaPanel } from "./MediaPanel";
 import { TVPanel } from "./TVPanel";
 import { StoragePanel } from "./StoragePanel";
 import { VideoPlayer } from "./VideoPlayer";
+import { MusicProvider } from "./MusicProvider";
+import { MusicPanel } from "./MusicPanel";
 
 interface CurrentUser {
   id: string;
@@ -56,7 +58,7 @@ interface CurrentUser {
 }
 
 type Crumb = { id: string | null; name: string };
-type MainView = "drive" | "shares" | "users" | "media" | "tv" | "storage";
+type MainView = "drive" | "shares" | "users" | "media" | "tv" | "storage" | "music";
 
 type PendingAction =
   | { type: "new-folder" }
@@ -390,6 +392,10 @@ export function DriveApp({ user }: { user: CurrentUser }) {
   }
 
   function openFile(file: FileItem) {
+    if(file.mime_type.startsWith("audio/")||file.mime_type==="application/ogg"){
+      setMainView("music");setSearchQuery("");setSearchResults(null);
+      window.dispatchEvent(new CustomEvent("rwz-music-open",{detail:file.id}));return;
+    }
     const kind = fileKind(file.mime_type);
     if (kind === "image" || kind === "video") {
       setPreview(file);
@@ -443,6 +449,7 @@ export function DriveApp({ user }: { user: CurrentUser }) {
   const isEmpty = !loading && visibleFolders.length === 0 && visibleFiles.length === 0;
 
   return (
+    <MusicProvider key={impersonating?.userId??user.id} scope={impersonating?.userId??user.id}>
     <div className={styles.shell}>
       <div
         className={`${styles.sidebarBackdrop} ${sidebarOpen ? styles.sidebarBackdropOpen : ""}`}
@@ -527,6 +534,9 @@ export function DriveApp({ user }: { user: CurrentUser }) {
           <button className={`${styles.navItem} ${mainView === "tv" ? styles.navItemActive : ""}`} onClick={openTV}>
             <VideoIcon size={16} /> Modo TV
           </button>
+          <button className={`${styles.navItem} ${mainView === "music" ? styles.navItemActive : ""}`} onClick={()=>{setMainView("music");setSearchQuery("");setSearchResults(null);setSidebarOpen(false);}}>
+            <span aria-hidden="true">♫</span> Músicas
+          </button>
           <button className={`${styles.navItem} ${mainView === "storage" ? styles.navItemActive : ""}`}
             onClick={() => { setMainView("storage"); setSidebarOpen(false); }}>
             <FolderIcon size={16} /> Espaço por pasta
@@ -589,7 +599,7 @@ export function DriveApp({ user }: { user: CurrentUser }) {
             </span>
             <input
               className={styles.searchInput}
-              placeholder={mainView === "media" ? "Buscar séries, filmes e episódios..." : "Buscar arquivos e pastas..."}
+              placeholder={mainView === "media" ? "Buscar séries, filmes e episódios..." : mainView === "music" ? "Buscar músicas, artistas e álbuns..." : "Buscar arquivos e pastas..."}
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
             />
@@ -627,6 +637,8 @@ export function DriveApp({ user }: { user: CurrentUser }) {
             <TVPanel key={impersonating?.userId ?? user.id} />
           ) : mainView === "storage" ? (
             <StoragePanel key={impersonating?.userId ?? user.id} onOpenFolder={openMediaFolder} />
+          ) : mainView === "music" ? (
+            <MusicPanel query={searchQuery} onOpenDrive={()=>{setMainView("drive");setSearchQuery("");setSearchResults(null);void loadFolder(currentFolderId);}} onOpenFolder={openMediaFolder}/>
           ) : (
             <>
           <input
@@ -1033,5 +1045,6 @@ export function DriveApp({ user }: { user: CurrentUser }) {
         </div>
       )}
     </div>
+    </MusicProvider>
   );
 }

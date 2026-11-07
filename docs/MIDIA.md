@@ -1,5 +1,7 @@
 # Séries e filmes no RWZ Drive
 
+Para assistir com amigos em uma sala sincronizada por convite, veja [o guia da Jam](JAM.md).
+
 A opção **Séries e filmes** aparece no menu do Drive. O catálogo usa os arquivos enviados pela sua conta e guarda o histórico no mesmo banco usado pelo player das pastas.
 
 ## Aplicar a atualização

@@ -3,8 +3,11 @@ import { env } from "./config/env";
 import { runMigrations, db } from "./db";
 import { deleteExpiredSessions } from "./services/session.service";
 import { sweepExpiredShares, deleteExpiredPublicSessions } from "./modules/shares/shares.service";
+import { recoverJams } from "./modules/jam/jam.service";
+import { closeJamConnections } from "./modules/jam/jam.routes";
 
 runMigrations();
+recoverJams();
 
 const server = app.listen(env.port, "127.0.0.1", () => {
   // eslint-disable-next-line no-console
@@ -39,6 +42,8 @@ function shutdown(signal: string) {
   // eslint-disable-next-line no-console
   console.log(`[drive-api] recebido ${signal}, encerrando...`);
   clearInterval(cleanupInterval);
+  recoverJams();
+  closeJamConnections();
   server.close(() => {
     db.close();
     process.exit(0);

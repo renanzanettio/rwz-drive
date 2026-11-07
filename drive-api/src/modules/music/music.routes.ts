@@ -1,0 +1,12 @@
+import { Router } from "express";
+import { requireAuth,resolveEffectiveOwner } from "../../middlewares/auth";
+import { addFolderToPlaylist,createPlaylist,deletePlaylist,getMusicCatalog,updatePlaylist,updateTrack } from "./music.service";
+export const musicRouter=Router();
+musicRouter.use(requireAuth,resolveEffectiveOwner);
+musicRouter.use((_req,res,next)=>{res.setHeader("Cache-Control","private, no-store");next();});
+musicRouter.get("/",(req,res,next)=>{try{res.json(getMusicCatalog(req.effectiveOwnerId!));}catch(error){next(error);}});
+musicRouter.post("/playlists",(req,res,next)=>{try{res.status(201).json(createPlaylist(req.effectiveOwnerId!,req.body??{}));}catch(error){next(error);}});
+musicRouter.put("/playlists/:id",(req,res,next)=>{try{res.json(updatePlaylist(req.effectiveOwnerId!,req.params.id,req.body??{}));}catch(error){next(error);}});
+musicRouter.post("/playlists/:id/folder",(req,res,next)=>{try{res.json(addFolderToPlaylist(req.effectiveOwnerId!,req.params.id,req.body??{}));}catch(error){next(error);}});
+musicRouter.delete("/playlists/:id",(req,res,next)=>{try{deletePlaylist(req.effectiveOwnerId!,req.params.id,req.body?.revision);res.json({ok:true});}catch(error){next(error);}});
+musicRouter.patch("/tracks/:id",(req,res,next)=>{try{res.json(updateTrack(req.effectiveOwnerId!,req.params.id,req.body??{}));}catch(error){next(error);}});

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, filesApi, mediaApi, type VideoDetails, type WatchProgress } from "@/lib/api-client";
 import styles from "./VideoPlayer.module.css";
+import { CreateJamButton } from "./JamActions";
 
 export function VideoPlayer({
   fileId,
@@ -112,6 +113,7 @@ export function VideoPlayer({
       }
     };
     const playing = () => {
+      window.dispatchEvent(new CustomEvent("rwz-media-play",{detail:{source:"drive-video"}}));
       interacted = true;
       const clock = liveRef.current;
       if (clock) {
@@ -130,6 +132,7 @@ export function VideoPlayer({
     const ended = () => { interacted = true; persist(true); onEndedRef.current?.(); };
     const hidden = () => { if (document.hidden) persist(true, true); };
     const pagehide = () => persist(true, true);
+    const otherMedia=(event:Event)=>{if((event as CustomEvent).detail?.source!=="drive-video")video.pause();};
     const failed = () => {
       if (!disposed) {
         setLoading(false);
@@ -145,6 +148,7 @@ export function VideoPlayer({
     video.addEventListener("error", failed);
     document.addEventListener("visibilitychange", hidden);
     window.addEventListener("pagehide", pagehide);
+    window.addEventListener("rwz-media-play",otherMedia);
     const interval = setInterval(() => { if (!video.paused || pending) persist(); }, 5000);
 
     const checkpoint = liveRef.current ? Promise.resolve({ updated_at: null, completed_at: null, position_seconds: 0 })
@@ -173,6 +177,7 @@ export function VideoPlayer({
       video.removeEventListener("error", failed);
       document.removeEventListener("visibilitychange", hidden);
       window.removeEventListener("pagehide", pagehide);
+      window.removeEventListener("rwz-media-play",otherMedia);
       video.pause();
       video.removeAttribute("src");
       video.load();
@@ -282,6 +287,7 @@ export function VideoPlayer({
           data-subtitle-id={track.id} src={mediaApi.subtitleUrl(fileId, track.id)} onLoad={applySubtitles} />)}
       </video>
       <div className={styles.controls} aria-label="Controles adicionais do vídeo">
+        {!live && <CreateJamButton fileId={fileId} position={() => videoRef.current?.currentTime ?? 0} />}
         {!live && <><button type="button" onClick={() => seek(-10)} title="Voltar 10 segundos">−10s</button>
           <button type="button" onClick={() => seek(10)} title="Avançar 10 segundos">+10s</button>
           <label>Velocidade<select value={speed} onChange={(event) => setSpeed(event.target.value)}>

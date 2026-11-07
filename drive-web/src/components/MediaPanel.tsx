@@ -8,6 +8,7 @@ import { DrivePicker } from "./DrivePicker";
 import { MediaEditor } from "./MediaEditor";
 import dialogs from "./MediaDialogs.module.css";
 import { VideoPlayer } from "./VideoPlayer";
+import { CreateJamButton, MyJamsButton } from "./JamActions";
 import styles from "./MediaPanel.module.css";
 
 const episodesOf = (title: MediaTitle) => title.seasons.flatMap((season) => season.episodes);
@@ -237,6 +238,7 @@ export function MediaPanel({
         <p className={styles.subtitle}>Continue de onde parou ou escolha o próximo título.</p></div>
       {!playing && <div className={styles.actions}>
         <button type="button" className={styles.primary} onClick={onOpenTV}>Modo TV</button>
+        <MyJamsButton className={styles.button} />
         <button type="button" className={styles.button} onClick={() => setSourcePicker(true)}>Adicionar pasta</button>
         <button type="button" className={styles.button} disabled={busy} onClick={() => void reload()}>
           {busy ? "Atualizando…" : "Atualizar coleção"}
@@ -284,6 +286,7 @@ export function MediaPanel({
               const resume = recent.find((item) => item.title.id === selected.id)?.episode;
               play(selected, resume ?? selectedEpisodes.find((e) => !e.watch_completed_at) ?? selectedEpisodes[0]);
             }}><PlayIcon /> Assistir</button>
+            <CreateJamButton fileId={selectedEpisodes.find((episode) => !episode.watch_completed_at)?.id ?? selectedEpisodes[0].id} className={styles.button} />
             <button type="button" className={styles.button} onClick={() => onOpenFolder(selected.folder_id)}><FolderIcon size={16} /> Abrir no Drive</button>
             <button type="button" className={styles.button} onClick={() => setEditing(true)}>Editar título e episódios</button>
             <button type="button" className={styles.button} disabled={busy} aria-pressed={selected.watchlist}
