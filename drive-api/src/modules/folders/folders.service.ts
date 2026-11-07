@@ -10,6 +10,8 @@ export interface FolderRecord {
   deleted_at: string | null;
   created_at: string;
   updated_at: string;
+  size_bytes?: number;
+  file_count?: number;
 }
 
 function validateName(name: string): void {
@@ -65,15 +67,19 @@ function assertNotCyclic(folderId: string, newParentId: string | null, ownerId: 
 }
 
 export function listFolders(ownerId: string, parentId: string | null): FolderRecord[] {
-  if (parentId !== null) {
-    getOwnedFolderOrThrow(parentId, ownerId);
-    return db
-      .prepare(`SELECT * FROM folders WHERE owner_id = ? AND parent_id = ? AND deleted_at IS NULL ORDER BY name`)
-      .all(ownerId, parentId) as unknown as FolderRecord[];
-  }
-  return db
-    .prepare(`SELECT * FROM folders WHERE owner_id = ? AND parent_id IS NULL AND deleted_at IS NULL ORDER BY name`)
-    .all(ownerId) as unknown as FolderRecord[];
+  if (parentId !== null) getOwnedFolderOrThrow(parentId, ownerId);
+  return db.prepare(`WITH RECURSIVE branch(root_id,id) AS (
+    SELECT id,id FROM folders WHERE owner_id=? AND parent_id IS ? AND deleted_at IS NULL
+    UNION SELECT b.root_id,f.id FROM folders f JOIN branch b ON f.parent_id=b.id
+      WHERE f.owner_id=? AND f.deleted_at IS NULL
+  ), sizes AS (
+    SELECT b.root_id, COALESCE(SUM(f.size),0) AS size_bytes, COUNT(f.id) AS file_count
+    FROM branch b LEFT JOIN files f ON f.folder_id=b.id AND f.owner_id=? AND f.deleted_at IS NULL GROUP BY b.root_id
+  )
+  SELECT f.*,COALESCE(s.size_bytes,0) AS size_bytes,COALESCE(s.file_count,0) AS file_count
+  FROM folders f LEFT JOIN sizes s ON s.root_id=f.id
+  WHERE f.owner_id=? AND f.parent_id IS ? AND f.deleted_at IS NULL ORDER BY f.name`)
+    .all(ownerId,parentId,ownerId,ownerId,ownerId,parentId) as unknown as FolderRecord[];
 }
 
 export function createFolder(ownerId: string, name: string, parentId: string | null): FolderRecord {

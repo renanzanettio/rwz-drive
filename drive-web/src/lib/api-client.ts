@@ -40,6 +40,8 @@ export interface FolderItem {
   owner_id: string;
   parent_id: string | null;
   name: string;
+  size_bytes?: number;
+  file_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +59,8 @@ export interface FileItem {
   // Presentes quando o arquivo vem da listagem de pasta (não da busca).
   watch_position_seconds?: number | null;
   watch_duration_seconds?: number | null;
+  watch_completed_at?: string | null;
+  watch_updated_at?: string | null;
 }
 
 export interface WatchProgress {
@@ -65,6 +69,7 @@ export interface WatchProgress {
   position_seconds: number;
   duration_seconds: number | null;
   updated_at: string | null;
+  completed_at: string | null;
 }
 
 export interface StorageUsage {
@@ -111,6 +116,14 @@ export const foldersApi = {
 
 // ---- Files ----
 export const filesApi = {
+  uploadSingle: async (file: File, folderId: string | null): Promise<FileItem> => {
+    const result = await uploadOneWithRetry<{ files: FileItem[] }>(
+      (progress) => xhrUploadSingle(withImpersonation("/api/files/upload"), { file, relativePath: null }, { folder_id: folderId }, progress),
+      () => {}
+    );
+    if (!result.files?.[0]) throw new Error("O servidor não retornou o arquivo enviado.");
+    return result.files[0];
+  },
   list: (folderId: string | null, q?: string) => {
     const params = new URLSearchParams();
     if (folderId) params.set("folder_id", folderId);
@@ -150,11 +163,107 @@ export const filesApi = {
   downloadUrl: (id: string) => withImpersonation(`/api/files/${id}/download`),
   streamUrl: (id: string) => withImpersonation(`/api/files/${id}/stream`),
   getProgress: (id: string) => request<WatchProgress>(`/files/${id}/progress`),
-  saveProgress: (id: string, positionSeconds: number, durationSeconds: number | null) =>
+  saveProgress: (
+    id: string,
+    positionSeconds: number,
+    durationSeconds: number | null,
+    options: { completed?: boolean; expectedUpdatedAt?: string | null; keepalive?: boolean } = {}
+  ) =>
     request<WatchProgress>(`/files/${id}/progress`, {
       method: "PUT",
-      body: JSON.stringify({ position_seconds: positionSeconds, duration_seconds: durationSeconds }),
+      keepalive: options.keepalive,
+      body: JSON.stringify({
+        position_seconds: positionSeconds,
+        duration_seconds: durationSeconds,
+        completed: options.completed,
+        expected_updated_at: options.expectedUpdatedAt,
+      }),
     }),
+};
+
+export interface MediaEpisode extends FileItem {
+  title: string;
+  duration_seconds: number | null;
+  sort_order: number | null;
+}
+
+export interface MediaTitle {
+  id: string;
+  kind: "series" | "movie";
+  name: string;
+  folder_id: string;
+  cover_file_id: string | null;
+  description: string;
+  watchlist: boolean;
+  seasons: { id: string; name: string; episodes: MediaEpisode[] }[];
+}
+
+export interface MediaCatalog {
+  roots: {
+    series: { id: string; name: string }[];
+    movies: { id: string; name: string }[];
+  };
+  titles: MediaTitle[];
+  sources: { folder_id: string; name: string; kind: "series" | "movies" }[];
+}
+
+export const mediaApi = {
+  catalog: () => request<MediaCatalog>("/media"),
+  setup: () => request<MediaCatalog>("/media/setup", { method: "POST" }),
+  addSource: (folderId: string, kind: "series" | "movies") => request<MediaCatalog>("/media/sources", {
+    method: "POST", body: JSON.stringify({ folder_id: folderId, kind }),
+  }),
+  removeSource: (id: string) => request<MediaCatalog>(`/media/sources/${id}`, { method: "DELETE" }),
+  updateTitle: (id: string, body: {
+    name?: string; description?: string; cover_file_id?: string | null; watchlist?: boolean;
+    episode_order?: string[]; episode_titles?: Record<string,string>;
+  }) => request<MediaCatalog>(`/media/titles/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  video: (id: string) => request<VideoDetails>(`/media/files/${id}`),
+  updateVideo: (id: string, body: { title?: string; duration_seconds?: number }) =>
+    request<VideoDetails>(`/media/files/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  addSubtitle: (id: string, subtitleId: string, label: string) => request<VideoDetails>(`/media/files/${id}/subtitles`, {
+    method: "POST", body: JSON.stringify({ subtitle_file_id: subtitleId, label }),
+  }),
+  removeSubtitle: (id: string, subtitleId: string) =>
+    request<VideoDetails>(`/media/files/${id}/subtitles/${subtitleId}`, { method: "DELETE" }),
+  subtitleUrl: (id: string, subtitleId: string) => withImpersonation(`/api/media/files/${id}/subtitles/${subtitleId}`),
+};
+
+export interface VideoDetails {
+  file: FileItem;
+  duration_seconds: number | null;
+  subtitles: { id: string; label: string }[];
+}
+export interface TVProgram {
+  file_id: string;
+  title: string;
+  show: string;
+  duration_ms: number;
+  start_at: number;
+  end_at: number;
+  offset_seconds?: number;
+}
+export interface TVChannel {
+  id: string; number: number; name: string; mode: "shuffle" | "ordered";
+  selected_title_ids: string[]; updated_at: string; server_now: number; program_count: number;
+  current: TVProgram | null; next: TVProgram[];
+}
+export interface ChannelInput {
+  name: string; number: number; mode: "shuffle" | "ordered"; selected_title_ids: string[];
+  expected_updated_at?: string;
+}
+export const tvApi = {
+  list: () => request<{ channels: TVChannel[] }>("/tv"),
+  get: (id: string) => request<TVChannel>(`/tv/${id}`),
+  create: (body: ChannelInput) => request<TVChannel>("/tv", { method: "POST", body: JSON.stringify(body) }),
+  update: (id: string, body: ChannelInput) => request<TVChannel>(`/tv/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  remove: (id: string) => request<void>(`/tv/${id}`, { method: "DELETE" }),
+};
+export const driveApi = {
+  batch: (action: "move" | "trash", fileIds: string[], folderIds: string[], targetFolderId: string | null = null) =>
+    request<{ ok: true }>("/drive/batch", { method: "POST", body: JSON.stringify({
+      action, file_ids: fileIds, folder_ids: folderIds, target_folder_id: targetFolderId,
+    }) }),
 };
 
 // ---- Search ----

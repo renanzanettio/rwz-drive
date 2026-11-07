@@ -1,0 +1,17 @@
+.player { min-width: 0; }
+.player video { display: block; width: 100%; background: #000; }
+.message { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 9px 0 0; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+.message button { border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; background: var(--bg-elevated); color: var(--accent); cursor: pointer; }
+.player { background: #05080c; color: var(--text); border-radius: 8px; overflow: hidden; }
+.player:fullscreen { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; padding: 12px; }
+.player:fullscreen video { max-height: 78vh; flex-shrink: 1; min-height: 0; }
+.player video::cue { font-size: var(--subtitle-size,22px); color: var(--subtitle-color,#fff); background: rgba(0,0,0,.75); }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 9px; }
+.controls button, .controls select, .controls input { background: var(--bg-elevated); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; font: inherit; font-size: 11px; }
+.controls button { cursor: pointer; min-height: 34px; }
+.controls label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); font-size: 11px; }
+.controls input { max-width: 72px; }
+.controls button:hover { color: var(--accent); }
+.controls button:disabled { opacity: .5; }
+.subtitleSettings { border-top: 1px solid var(--border); font-size: 12px; }
+.subtitleSettings summary { cursor: pointer; padding: 10px; color: var(--text-dim); }

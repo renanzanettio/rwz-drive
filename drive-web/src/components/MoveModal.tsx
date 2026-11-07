@@ -7,11 +7,13 @@ import styles from "@/app/drive/drive.module.css";
 
 export function MoveModal({
   excludeFolderId,
+  excludeFolderIds = [],
   onMove,
   onCancel,
 }: {
   /** Se estivermos movendo uma pasta, sua própria subárvore não deve ser navegável. */
   excludeFolderId?: string;
+  excludeFolderIds?: string[];
   onMove: (targetFolderId: string | null) => void;
   onCancel: () => void;
 }) {
@@ -25,7 +27,7 @@ export function MoveModal({
     setLoading(true);
     foldersApi
       .list(current.id)
-      .then((res) => setFolders(res.folders.filter((f) => f.id !== excludeFolderId)))
+      .then((res) => setFolders(res.folders.filter((f) => f.id !== excludeFolderId && !excludeFolderIds.includes(f.id))))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current.id]);

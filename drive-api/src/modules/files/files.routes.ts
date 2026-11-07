@@ -124,6 +124,7 @@ filesRouter.get("/:id/progress", (req, res, next) => {
         position_seconds: 0,
         duration_seconds: null,
         updated_at: null,
+        completed_at: null,
       }
     );
   } catch (err) {
@@ -134,7 +135,7 @@ filesRouter.get("/:id/progress", (req, res, next) => {
 filesRouter.put("/:id/progress", (req, res, next) => {
   try {
     const file = getOwnedFileOrThrow(req.params.id, req.effectiveOwnerId!);
-    const { position_seconds, duration_seconds } = req.body ?? {};
+    const { position_seconds, duration_seconds, completed, expected_updated_at } = req.body ?? {};
 
     if (typeof position_seconds !== "number" || !Number.isFinite(position_seconds) || position_seconds < 0) {
       throw new HttpError(400, "position_seconds inválido.");
@@ -144,7 +145,16 @@ filesRouter.put("/:id/progress", (req, res, next) => {
         ? duration_seconds
         : null;
 
-    const progress = saveProgress(file.id, req.effectiveOwnerId!, position_seconds, duration);
+    if (completed !== undefined && typeof completed !== "boolean") {
+      throw new HttpError(400, "completed inválido.");
+    }
+    if (expected_updated_at !== undefined && expected_updated_at !== null
+      && (typeof expected_updated_at !== "string" || !Number.isFinite(Date.parse(expected_updated_at)))) {
+      throw new HttpError(400, "expected_updated_at inválido.");
+    }
+    const progress = saveProgress(
+      file.id, req.effectiveOwnerId!, position_seconds, duration, completed, expected_updated_at
+    );
     res.json(
       progress ?? {
         file_id: file.id,
@@ -152,6 +162,7 @@ filesRouter.put("/:id/progress", (req, res, next) => {
         position_seconds: 0,
         duration_seconds: null,
         updated_at: null,
+        completed_at: null,
       }
     );
   } catch (err) {

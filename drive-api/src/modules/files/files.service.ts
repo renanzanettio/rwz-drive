@@ -29,6 +29,8 @@ export interface FileRecord {
   // Presentes só quando a consulta faz JOIN com watch_progress (ver listFiles).
   watch_position_seconds?: number | null;
   watch_duration_seconds?: number | null;
+  watch_completed_at?: string | null;
+  watch_updated_at?: string | null;
 }
 
 function validateName(name: string): void {
@@ -138,9 +140,10 @@ export function listFiles(ownerId: string, folderId: string | null, query?: stri
     // Pesquisa sobre metadados no banco, nunca varrendo o filesystem (spec §18).
     return db
       .prepare(
-        `SELECT files.*, wp.position_seconds AS watch_position_seconds, wp.duration_seconds AS watch_duration_seconds
+        `SELECT files.*, wp.position_seconds AS watch_position_seconds, wp.duration_seconds AS watch_duration_seconds,
+                wp.completed_at AS watch_completed_at, wp.updated_at AS watch_updated_at
          FROM files
-         LEFT JOIN watch_progress wp ON wp.file_id = files.id
+         LEFT JOIN watch_progress wp ON wp.file_id = files.id AND wp.owner_id = files.owner_id
          WHERE files.owner_id = ? AND files.deleted_at IS NULL AND files.original_name LIKE ?
          ORDER BY files.original_name`
       )
@@ -150,9 +153,10 @@ export function listFiles(ownerId: string, folderId: string | null, query?: stri
   if (folderId === null) {
     return db
       .prepare(
-        `SELECT files.*, wp.position_seconds AS watch_position_seconds, wp.duration_seconds AS watch_duration_seconds
+        `SELECT files.*, wp.position_seconds AS watch_position_seconds, wp.duration_seconds AS watch_duration_seconds,
+                wp.completed_at AS watch_completed_at, wp.updated_at AS watch_updated_at
          FROM files
-         LEFT JOIN watch_progress wp ON wp.file_id = files.id
+         LEFT JOIN watch_progress wp ON wp.file_id = files.id AND wp.owner_id = files.owner_id
          WHERE files.owner_id = ? AND files.folder_id IS NULL AND files.deleted_at IS NULL
          ORDER BY files.original_name`
       )
@@ -161,9 +165,10 @@ export function listFiles(ownerId: string, folderId: string | null, query?: stri
 
   return db
     .prepare(
-      `SELECT files.*, wp.position_seconds AS watch_position_seconds, wp.duration_seconds AS watch_duration_seconds
+      `SELECT files.*, wp.position_seconds AS watch_position_seconds, wp.duration_seconds AS watch_duration_seconds,
+                wp.completed_at AS watch_completed_at, wp.updated_at AS watch_updated_at
        FROM files
-       LEFT JOIN watch_progress wp ON wp.file_id = files.id
+       LEFT JOIN watch_progress wp ON wp.file_id = files.id AND wp.owner_id = files.owner_id
        WHERE files.owner_id = ? AND files.folder_id = ? AND files.deleted_at IS NULL
        ORDER BY files.original_name`
     )

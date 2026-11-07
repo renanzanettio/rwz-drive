@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import styles from "@/app/drive/drive.module.css";
 import {
   authApi,
+  driveApi,
   filesApi,
   foldersApi,
   searchApi,
@@ -13,6 +14,7 @@ import {
   type FileItem,
   type FolderItem,
   type StorageUsage,
+  type WatchProgress,
 } from "@/lib/api-client";
 import { toUploadItems, type UploadBatchProgress } from "@/lib/upload";
 import { setImpersonation, clearImpersonation } from "@/lib/impersonation";
@@ -41,6 +43,10 @@ import { ShareModal } from "./ShareModal";
 import { SharesPanel } from "./SharesPanel";
 import { UsersPanel } from "./UsersPanel";
 import { Toast } from "./Toast";
+import { MediaPanel } from "./MediaPanel";
+import { TVPanel } from "./TVPanel";
+import { StoragePanel } from "./StoragePanel";
+import { VideoPlayer } from "./VideoPlayer";
 
 interface CurrentUser {
   id: string;
@@ -50,7 +56,7 @@ interface CurrentUser {
 }
 
 type Crumb = { id: string | null; name: string };
-type MainView = "drive" | "shares" | "users";
+type MainView = "drive" | "shares" | "users" | "media" | "tv" | "storage";
 
 type PendingAction =
   | { type: "new-folder" }
@@ -89,13 +95,17 @@ export function DriveApp({ user }: { user: CurrentUser }) {
   const [toast, setToast] = useState<{ message: string; danger?: boolean } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<UploadBatchProgress | null>(null);
-  const [resumePosition, setResumePosition] = useState<number | null>(null);
+
+  const [sortOrder, setSortOrder] = useState("name");
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selection, setSelection] = useState<{ files: string[]; folders: string[] }>({ files: [], folders: [] });
+  const [batchModal, setBatchModal] = useState<"move" | "trash" | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
   const dragCounter = useRef(0);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const lastSavedPositionRef = useRef<number>(0);
+  const searchRequestRef = useRef(0);
 
   function notify(message: string, danger = false) {
     setToast({ message, danger });
@@ -176,16 +186,57 @@ export function DriveApp({ user }: { user: CurrentUser }) {
   }
 
   async function handleSearch(q: string) {
+    const requestId = ++searchRequestRef.current;
     setSearchQuery(q);
+    setSelection({ files: [], folders: [] });
+    if (mainView !== "drive") return;
     if (q.trim().length === 0) {
       setSearchResults(null);
       return;
     }
     try {
-      setSearchResults(await searchApi.search(q.trim()));
+      const results = await searchApi.search(q.trim());
+      if (requestId === searchRequestRef.current) setSearchResults(results);
     } catch (err) {
       notify(err instanceof ApiError ? err.message : "Falha na busca.", true);
     }
+  }
+
+  useEffect(() => {
+    searchRequestRef.current += 1;
+    setSelection({ files: [], folders: [] });
+    setSelectionMode(false);
+    setBatchModal(null);
+  }, [currentFolderId, mainView]);
+
+  function toggleSelection(kind: "files" | "folders", id: string) {
+    setSelection((previous) => ({
+      ...previous,
+      [kind]: previous[kind].includes(id) ? previous[kind].filter((item) => item !== id) : [...previous[kind], id],
+    }));
+  }
+
+  async function batchAction(action: "move" | "trash", target: string | null = null) {
+    if (batchBusy) return;
+    setBatchBusy(true);
+    try {
+      await driveApi.batch(action, selection.files, selection.folders, target);
+      setSelection({ files: [], folders: [] });
+      setBatchModal(null);
+      if (searchResults && searchQuery.trim()) setSearchResults(await searchApi.search(searchQuery.trim()));
+      else await loadFolder(currentFolderId);
+      await loadUsage();
+      notify(action === "move" ? "Itens movidos." : "Itens excluídos.");
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : "Não foi possível alterar os itens selecionados.", true);
+    } finally { setBatchBusy(false); }
+  }
+
+  function openTV() {
+    setMainView("tv");
+    setSidebarOpen(false);
+    setSearchQuery("");
+    setSearchResults(null);
   }
 
   // ---------- Upload ----------
@@ -347,53 +398,48 @@ export function DriveApp({ user }: { user: CurrentUser }) {
     }
   }
 
-  // ---------- Progresso de vídeo (sincronizado entre dispositivos via API) ----------
-  useEffect(() => {
-    lastSavedPositionRef.current = 0;
-    if (preview && fileKind(preview.mime_type) === "video") {
-      filesApi
-        .getProgress(preview.id)
-        .then((p) => setResumePosition(p.position_seconds > 0 ? p.position_seconds : null))
-        .catch(() => setResumePosition(null));
-    } else {
-      setResumePosition(null);
-    }
-  }, [preview]);
-
-  function persistVideoProgress(force: boolean) {
-    const video = videoRef.current;
-    if (!video || !preview) return;
-    const position = video.currentTime;
-    const duration = Number.isFinite(video.duration) ? video.duration : null;
-    // Evita chamada de API a cada frame do timeupdate — só salva de novo se
-    // passaram uns segundos desde o último save (ou se for forçado, ex.: pausa/fechar).
-    if (!force && Math.abs(position - lastSavedPositionRef.current) < 5) return;
-    lastSavedPositionRef.current = position;
-    filesApi.saveProgress(preview.id, position, duration).catch(() => {
-      /* silencioso — perder um "checkpoint" de progresso não é crítico */
-    });
-  }
-
-  function handleVideoLoadedMetadata() {
-    if (resumePosition !== null && videoRef.current) {
-      videoRef.current.currentTime = resumePosition;
-      lastSavedPositionRef.current = resumePosition;
-    }
+  function updateWatchProgress(progress: WatchProgress) {
+    const update = (items: FileItem[]) => items.map((file) => file.id === progress.file_id ? {
+      ...file,
+      watch_position_seconds: progress.position_seconds,
+      watch_duration_seconds: progress.duration_seconds,
+      watch_completed_at: progress.completed_at,
+      watch_updated_at: progress.updated_at,
+    } : file);
+    setFiles(update);
+    setSearchResults((previous) => previous && { ...previous, files: update(previous.files) });
   }
 
   function closePreview() {
-    if (preview && fileKind(preview.mime_type) === "video") {
-      persistVideoProgress(true);
-    }
     setPreview(null);
+  }
+
+  async function openMediaFolder(folderId: string) {
+    try {
+      const { breadcrumb: trail } = await foldersApi.breadcrumb(folderId);
+      setBreadcrumb([{ id: null, name: impersonating ? `Drive de ${impersonating.username}` : "Meu Drive" },
+        ...trail.map((folder) => ({ id: folder.id, name: folder.name }))]);
+      setSearchQuery("");
+      setSearchResults(null);
+      setMainView("drive");
+      await loadFolder(folderId);
+    } catch (err) {
+      notify(err instanceof ApiError ? err.message : "Não foi possível abrir a pasta.", true);
+    }
   }
 
   const usagePct = usage ? Math.min(100, Math.round((usage.usedBytes / usage.quotaBytes) * 100)) : 0;
   const usageLevel = usagePct >= 95 ? styles.btnDanger : usagePct >= 80 ? "warn" : "";
 
   const showingSearch = searchResults !== null;
-  const visibleFolders = showingSearch ? searchResults!.folders : folders;
-  const visibleFiles = showingSearch ? searchResults!.files : files;
+  const collator = new Intl.Collator("pt-BR", { numeric: true, sensitivity: "base" });
+  const visibleFolders = [...(showingSearch ? searchResults!.folders : folders)].sort((a,b) =>
+    (sortOrder === "size" ? (b.size_bytes ?? 0)-(a.size_bytes ?? 0) : sortOrder === "date" ? b.updated_at.localeCompare(a.updated_at) : 0)
+    || collator.compare(a.name,b.name));
+  const visibleFiles = [...(showingSearch ? searchResults!.files : files)].sort((a,b) =>
+    (sortOrder === "size" ? b.size-a.size : sortOrder === "date" ? b.updated_at.localeCompare(a.updated_at) : 0)
+    || collator.compare(a.original_name,b.original_name));
+  const selectedCount = selection.files.length + selection.folders.length;
   const isEmpty = !loading && visibleFolders.length === 0 && visibleFiles.length === 0;
 
   return (
@@ -409,7 +455,15 @@ export function DriveApp({ user }: { user: CurrentUser }) {
         </div>
 
         <div style={{ position: "relative" }}>
-          <button className={styles.newButton} onClick={() => setNewMenuOpen((v) => !v)}>
+          <button className={styles.newButton} onClick={() => {
+            if (mainView !== "drive") {
+              setSearchQuery("");
+              setSearchResults(null);
+              void loadFolder(currentFolderId);
+            }
+            setMainView("drive");
+            setNewMenuOpen((v) => !v);
+          }}>
             <PlusIcon size={16} />
             Novo
           </button>
@@ -449,9 +503,33 @@ export function DriveApp({ user }: { user: CurrentUser }) {
         <nav>
           <button
             className={`${styles.navItem} ${mainView === "drive" ? styles.navItemActive : ""}`}
-            onClick={() => setMainView("drive")}
+            onClick={() => {
+              setMainView("drive");
+              setSidebarOpen(false);
+              setSearchQuery("");
+              setSearchResults(null);
+              void loadFolder(currentFolderId);
+            }}
           >
             <FolderIcon size={16} /> {impersonating ? `Drive de ${impersonating.username}` : "Meu Drive"}
+          </button>
+          <button
+            className={`${styles.navItem} ${mainView === "media" ? styles.navItemActive : ""}`}
+            onClick={() => {
+              setMainView("media");
+              setSidebarOpen(false);
+              setSearchQuery("");
+              setSearchResults(null);
+            }}
+          >
+            <VideoIcon size={16} /> Séries e filmes
+          </button>
+          <button className={`${styles.navItem} ${mainView === "tv" ? styles.navItemActive : ""}`} onClick={openTV}>
+            <VideoIcon size={16} /> Modo TV
+          </button>
+          <button className={`${styles.navItem} ${mainView === "storage" ? styles.navItemActive : ""}`}
+            onClick={() => { setMainView("storage"); setSidebarOpen(false); }}>
+            <FolderIcon size={16} /> Espaço por pasta
           </button>
           <button
             className={`${styles.navItem} ${mainView === "shares" ? styles.navItemActive : ""}`}
@@ -511,7 +589,7 @@ export function DriveApp({ user }: { user: CurrentUser }) {
             </span>
             <input
               className={styles.searchInput}
-              placeholder="Buscar arquivos e pastas..."
+              placeholder={mainView === "media" ? "Buscar séries, filmes e episódios..." : "Buscar arquivos e pastas..."}
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
             />
@@ -543,6 +621,12 @@ export function DriveApp({ user }: { user: CurrentUser }) {
             <SharesPanel notify={notify} />
           ) : mainView === "users" ? (
             <UsersPanel notify={notify} onViewAsUser={viewAsUser} />
+          ) : mainView === "media" ? (
+            <MediaPanel key={impersonating?.userId ?? user.id} query={searchQuery} onOpenFolder={openMediaFolder} onOpenTV={openTV} />
+          ) : mainView === "tv" ? (
+            <TVPanel key={impersonating?.userId ?? user.id} />
+          ) : mainView === "storage" ? (
+            <StoragePanel key={impersonating?.userId ?? user.id} onOpenFolder={openMediaFolder} />
           ) : (
             <>
           <input
@@ -587,6 +671,22 @@ export function DriveApp({ user }: { user: CurrentUser }) {
 
           {showingSearch && <h1 className={styles.sectionTitle}>Resultados para "{searchQuery}"</h1>}
 
+          <div className={styles.fileToolbar}>
+            <label>Ordenar<select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
+              <option value="name">Nome (A–Z)</option><option value="date">Atualizados recentemente</option>
+              <option value="size">Maior tamanho</option></select></label>
+            <button type="button" className={styles.btn} onClick={() => {
+              setSelectionMode(!selectionMode); setSelection({ files: [], folders: [] });
+            }}>{selectionMode ? "Concluir seleção" : "Selecionar itens"}</button>
+            {selectionMode && <>
+              <button type="button" className={styles.btn} disabled={visibleFiles.length+visibleFolders.length > 1000}
+                onClick={() => setSelection({ files: visibleFiles.map((file) => file.id), folders: visibleFolders.map((folder) => folder.id) })}>Selecionar todos</button>
+              <span>{selectedCount} selecionados</span>
+              <button type="button" className={styles.btn} disabled={!selectedCount || batchBusy} onClick={() => setBatchModal("move")}>Mover selecionados</button>
+              <button type="button" className={`${styles.btn} ${styles.btnDanger}`} disabled={!selectedCount || batchBusy} onClick={() => setBatchModal("trash")}>Excluir selecionados</button>
+            </>}
+          </div>
+
           {isEmpty && (
             <div className={styles.emptyState}>
               <FolderIcon size={40} />
@@ -602,14 +702,17 @@ export function DriveApp({ user }: { user: CurrentUser }) {
               {visibleFolders.map((folder) => (
                 <div
                   key={folder.id}
-                  className={styles.card}
-                  onClick={() => navigateTo(folder.id, folder.name)}
+                  className={`${styles.card} ${selection.folders.includes(folder.id) ? styles.cardSelected : ""}`}
+                  onClick={() => selectionMode ? toggleSelection("folders",folder.id) : navigateTo(folder.id, folder.name)}
                 >
+                  {selectionMode && <input type="checkbox" className={styles.itemCheckbox}
+                    aria-label={"Selecionar pasta " + folder.name} checked={selection.folders.includes(folder.id)}
+                    onClick={(event) => event.stopPropagation()} onChange={() => toggleSelection("folders",folder.id)} />}
                   <div className={styles.cardIcon} style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
                     <FolderIcon size={20} />
                   </div>
                   <div className={styles.cardName}>{folder.name}</div>
-                  <div className={styles.cardMeta}>Pasta</div>
+                  <div className={styles.cardMeta}>{folder.size_bytes === undefined ? "Pasta" : formatBytes(folder.size_bytes) + " · " + folder.file_count + (folder.file_count === 1 ? " arquivo" : " arquivos")}</div>
 
                   <div className={styles.cardActions}>
                     <button
@@ -680,7 +783,11 @@ export function DriveApp({ user }: { user: CurrentUser }) {
               ))}
 
               {visibleFiles.map((file) => (
-                <div key={file.id} className={styles.card} onClick={() => openFile(file)}>
+                <div key={file.id} className={`${styles.card} ${selection.files.includes(file.id) ? styles.cardSelected : ""}`}
+                  onClick={() => selectionMode ? toggleSelection("files",file.id) : openFile(file)}>
+                  {selectionMode && <input type="checkbox" className={styles.itemCheckbox}
+                    aria-label={"Selecionar arquivo " + file.original_name} checked={selection.files.includes(file.id)}
+                    onClick={(event) => event.stopPropagation()} onChange={() => toggleSelection("files",file.id)} />}
                   {fileKind(file.mime_type) === "image" ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={filesApi.streamUrl(file.id)} alt={file.original_name} className={styles.cardThumb} />
@@ -692,13 +799,16 @@ export function DriveApp({ user }: { user: CurrentUser }) {
                   <div className={styles.cardName}>{file.original_name}</div>
                   <div className={styles.cardMeta}>
                     {formatBytes(file.size)}
+                    {file.watch_completed_at && " · Assistido"}
                     {fileKind(file.mime_type) === "video" &&
                       !!file.watch_position_seconds &&
+                      !file.watch_completed_at &&
                       !!file.watch_duration_seconds &&
                       ` · ${formatDuration(file.watch_position_seconds)} de ${formatDuration(file.watch_duration_seconds)}`}
                   </div>
                   {fileKind(file.mime_type) === "video" &&
                     !!file.watch_position_seconds &&
+                    !file.watch_completed_at &&
                     !!file.watch_duration_seconds && (
                       <div className={styles.cardProgressTrack}>
                         <div
@@ -783,6 +893,14 @@ export function DriveApp({ user }: { user: CurrentUser }) {
           )}
         </div>
       </div>
+
+      {batchModal === "move" && <MoveModal excludeFolderIds={selection.folders}
+        onCancel={() => { if (!batchBusy) setBatchModal(null); }}
+        onMove={(id) => { if (!batchBusy) void batchAction("move",id); }} />}
+      {batchModal === "trash" && <ConfirmModal title={"Excluir " + selectedCount + " itens?"}
+        description="As pastas selecionadas e seu conteúdo serão excluídos do Drive."
+        confirmLabel={batchBusy ? "Excluindo…" : "Excluir selecionados"} danger
+        onCancel={() => { if (!batchBusy) setBatchModal(null); }} onConfirm={() => { if (!batchBusy) void batchAction("trash"); }} />}
 
       {/* ---------- Modais ---------- */}
       {pendingAction?.type === "new-folder" && (
@@ -876,25 +994,17 @@ export function DriveApp({ user }: { user: CurrentUser }) {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={filesApi.streamUrl(preview.id)} alt={preview.original_name} className={styles.previewImg} />
             ) : (
-              <video
-                ref={videoRef}
+              <VideoPlayer
                 key={preview.id}
-                src={filesApi.streamUrl(preview.id)}
-                controls
-                autoPlay
+                fileId={preview.id}
+                title={preview.original_name}
                 className={styles.previewVideo}
-                onLoadedMetadata={handleVideoLoadedMetadata}
-                onTimeUpdate={() => persistVideoProgress(false)}
-                onPause={() => persistVideoProgress(true)}
-                onEnded={() => persistVideoProgress(true)}
+                onProgress={updateWatchProgress}
               />
             )}
           </div>
           <div className={styles.previewCaption}>
             {preview.original_name} · {formatBytes(preview.size)} · {formatDate(preview.created_at)}
-            {resumePosition !== null && fileKind(preview.mime_type) === "video" && (
-              <span className={styles.resumeBadge}> · retomando de {formatDuration(resumePosition)}</span>
-            )}
           </div>
         </div>
       )}
